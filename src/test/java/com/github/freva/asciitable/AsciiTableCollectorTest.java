@@ -1,13 +1,19 @@
 package com.github.freva.asciitable;
 
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.BiConsumer;
+import java.util.function.BinaryOperator;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import org.junit.jupiter.api.Test;
 
 public class AsciiTableCollectorTest {
 
@@ -29,6 +35,18 @@ public class AsciiTableCollectorTest {
                 new Person(2, "Bob", 25),
                 new Person(3, "Carol", 42)
         );
+    }
+    
+    private List<ColumnData<Person>> columns() {
+        return List.of(
+            new Column().with(p -> Integer.toString(p.id)),
+            new Column().header("Name").with(p -> p.name),
+            new Column().header("Age").dataAlign(HorizontalAlign.RIGHT).with(p -> Integer.toString(p.age))
+        );
+    }
+
+    private Collector<Person, ?, String> collector() {
+        return (Collector) AsciiTableCollector.toAsciiTable(columns());
     }
 
     @Test
@@ -119,5 +137,89 @@ public class AsciiTableCollectorTest {
         String expectedBorder = AsciiTable.getTable(border, people, columns);
         String actualParallelBorder = people.parallelStream().collect(AsciiTableCollector.toAsciiTable(border, columns));
         assertEquals(expectedBorder, actualParallelBorder);
+    }
+    
+    @Test
+    public void combine_sameInstance_returnsSame() {
+        Collector<Person, ?, String> c = collector();
+
+        Supplier<Object> supplier = (Supplier) c.supplier();
+        BiConsumer<Object, Person> accumulator = (BiConsumer) c.accumulator();
+        BinaryOperator<Object> combiner = (BinaryOperator) c.combiner();
+
+        Object acc = supplier.get();
+        // add one element to ensure rows is non-empty
+        accumulator.accept(acc, new Person(1, "A", 30));
+
+        // calling combiner with the same instance should return the same instance (early return)
+        Object result = combiner.apply(acc, acc);
+        assertSame(acc, result, "Combiner should return 'this' when other == this");
+    }
+
+    @Test
+    public void combine_thisEmpty_returnsOther() {
+        Collector<Person, ?, String> c = collector();
+
+        Supplier<Object> supplier = (Supplier) c.supplier();
+        BiConsumer<Object, Person> accumulator = (BiConsumer) c.accumulator();
+        BinaryOperator<Object> combiner = (BinaryOperator) c.combiner();
+
+        Object emptyAcc = supplier.get();
+        Object nonEmptyAcc = supplier.get();
+        accumulator.accept(nonEmptyAcc, new Person(2, "B", 25));
+
+        Object result = combiner.apply(emptyAcc, nonEmptyAcc);
+        assertSame(nonEmptyAcc, result, "Combiner should return other when this.rows is empty");
+    }
+
+    @Test
+    public void combine_otherEmpty_returnsThis() {
+        Collector<Person, ?, String> c = collector();
+
+        Supplier<Object> supplier = (Supplier) c.supplier();
+        BiConsumer<Object, Person> accumulator = (BiConsumer) c.accumulator();
+        BinaryOperator<Object> combiner = (BinaryOperator) c.combiner();
+
+        Object nonEmptyAcc = supplier.get();
+        Object emptyAcc = supplier.get();
+        accumulator.accept(nonEmptyAcc, new Person(3, "C", 40));
+
+        Object result = combiner.apply(nonEmptyAcc, emptyAcc);
+        assertSame(nonEmptyAcc, result, "Combiner should return this when other.rows is empty");
+    }
+
+    @Test
+    public void combine_bothNonEmpty_mergesAndPreservesOrder() {
+        Collector<Person, ?, String> c = collector();
+
+        Supplier<Object> supplier = (Supplier) c.supplier();
+        BiConsumer<Object, Person> accumulator = (BiConsumer) c.accumulator();
+        BinaryOperator<Object> combiner = (BinaryOperator) c.combiner();
+        Function<Object, String> finisher = (Function) c.finisher();
+
+        // build two partial accumulators that each receive some rows
+        Object left = supplier.get();
+        Object right = supplier.get();
+
+        Person a1 = new Person(10, "L1", 30);
+        Person a2 = new Person(11, "L2", 31);
+        Person b1 = new Person(20, "R1", 40);
+
+        // left: a1, a2
+        accumulator.accept(left, a1);
+        accumulator.accept(left, a2);
+
+        // right: b1
+        accumulator.accept(right, b1);
+
+        // combine left + right -> should append right rows after left rows
+        Object combined = combiner.apply(left, right);
+
+        String combinedTable = finisher.apply(combined);
+
+        // expected table built using sequential API for exact ordering and formatting parity
+        String expected = AsciiTable.getTable(List.of(a1, a2, b1), columns());
+
+        assertEquals(expected, combinedTable, "Combined finisher output should match expected table for appended rows");
     }
 }

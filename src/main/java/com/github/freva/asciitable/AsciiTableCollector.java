@@ -22,12 +22,70 @@ public final class AsciiTableCollector {
     private AsciiTableCollector() {}
 
     /**
+     * Generic accumulator that maps elements to rows and accumulates them.
+     *
+     * <p>See the public API docs for threading / parallel-safety guidance.
+     */
+    private static final class RowAccumulator<T extends @Nullable Object> {
+        private final List<ColumnData<T>> columns;
+        private final Column[] rawColumns;
+        private final Character[] border;
+        private final ArrayList<String[]> rows;
+
+        RowAccumulator(List<ColumnData<T>> columns, Column[] rawColumns, @Nullable Character[] border) {
+            this.columns = columns;
+            this.rawColumns = rawColumns;
+            this.border = border;
+            this.rows = new ArrayList<>();
+        }
+
+        void add(T item) {
+            final int cols = columns.size();
+            String[] row = new String[cols];
+            for (int i = 0; i < cols; i++) {
+                // guard against null cell values; render as empty string
+                row[i] = Objects.toString(columns.get(i).getCellValue(item), "");
+            }
+            rows.add(row);
+        }
+
+        RowAccumulator<T> combine(RowAccumulator<T> other) {
+            if (other == this) return this;
+            if (this.rows.isEmpty()) return other;
+            if (other.rows.isEmpty()) return this;
+            // reduce reallocation
+            this.rows.ensureCapacity(this.rows.size() + other.rows.size());
+            this.rows.addAll(other.rows);
+            return this;
+        }
+
+        String finish() {
+            String[][] data = rows.toArray(new String[rows.size()][]);
+            return border == null ? AsciiTable.getTable(rawColumns, data) : AsciiTable.getTable(border, rawColumns, data);
+        }
+    }
+
+    /**
+     * Factory that creates the optimized collector for the given columns and optional border.
+     */
+    private static <T extends @Nullable Object> Collector<T, ?, String> createCollector(@Nullable Character[] border, List<ColumnData<T>> columns) {
+        final Column[] rawColumns = columns.toArray(new Column[0]);
+
+        return Collector.of(
+                () -> new RowAccumulator<>(columns, rawColumns, border),
+                RowAccumulator::add,
+                RowAccumulator::combine,
+                RowAccumulator::finish
+        );
+    }
+
+    /**
      * Returns a Collector that maps each stream element once to a String[] row (using the provided
      * {@link ColumnData} getters), accumulates the rows and then renders the table.
      *
      * Example:
      * <pre>{@code
-     * String table = people.stream().collect(AsciiTableCollectors.toAsciiTable(columns));
+     * String table = people.stream().collect(AsciiTableCollector.toAsciiTable(columns));
      * }</pre>
      *
      * @param columns column definitions and getters used to extract cell values from stream elements
@@ -36,64 +94,7 @@ public final class AsciiTableCollector {
      */
     public static <T extends @Nullable Object> Collector<T, ?, String> toAsciiTable(List<ColumnData<T>> columns) {
         Objects.requireNonNull(columns, "columns cannot be null");
-        final Column[] rawColumns = columns.toArray(new Column[0]);
-        final int cols = columns.size();
-
-        /**
-         * Accumulates mapped row data during collection.
-         *
-         * <p>This class stores the mapped rows (each row is a {@code String[]} of length {@code cols})
-         * in an {@link ArrayList}. It is intentionally simple:
-         * - add(T) maps an item to a row and appends it to the internal list;
-         * - combine(other) appends the other's rows to this accumulator to preserve encounter order.
-         *
-         * <p>Threading / parallel-safety:
-         * <ul>
-         *   <li>Instances of this accumulator are not themselves thread-safe. The {@link java.util.stream.Stream}
-         *       framework guarantees that each accumulator instance is only used by a single thread during the
-         *       accumulation phase (so you do not need additional synchronization inside the collector).</li>
-         *   <li>If you use parallel streams, the collector's combiner merges partial accumulators by appending
-         *       rows from one accumulator after another. For ordered streams, the stream implementation will
-         *       combine partial results in a way that preserves the encounter order in the final result.
-         *       If you require a strict, easily reasoned ordering with parallel execution, you can:
-         *       <ul>
-         *         <li>use a sequential stream (call {@code stream.sequential()}), or</li>
-         *         <li>ensure your source is ordered and accept the stream framework's ordering guarantees.</li>
-         *       </ul>
-         *   </li>
-         * </ul>
-         *
-         * <p>Memory: all rows are buffered (String[][]) because AsciiTable must compute column widths
-         * before rendering.
-         */
-        final class RowAccumulator {
-            final List<String[]> rows = new ArrayList<>();
-
-            void add(T item) {
-                String[] row = new String[cols];
-                for (int i = 0; i < cols; i++) {
-                    row[i] = columns.get(i).getCellValue(item);
-                }
-                rows.add(row);
-            }
-
-            RowAccumulator combine(RowAccumulator other) {
-                rows.addAll(other.rows);
-                return this;
-            }
-
-            String finish() {
-                String[][] data = rows.toArray(new String[rows.size()][]);
-                return AsciiTable.getTable(rawColumns, data);
-            }
-        }
-
-        return Collector.of(
-                RowAccumulator::new,
-                RowAccumulator::add,
-                (a, b) -> a.combine(b),
-                RowAccumulator::finish
-        );
+        return createCollector(null, columns);
     }
 
     /**
@@ -102,7 +103,7 @@ public final class AsciiTableCollector {
      *
      * Example:
      * <pre>{@code
-     * String table = people.stream().collect(AsciiTableCollectors
+     * String table = people.stream().collect(AsciiTableCollector
      *                      .toAsciiTable(AsciiTable.FANCY_ASCII, columns));
      * }</pre>
      *
@@ -112,44 +113,9 @@ public final class AsciiTableCollector {
      * @return Collector producing the rendered table string
      */
     public static <T extends @Nullable Object> Collector<T, ?, String> toAsciiTable(@Nullable Character[] border, List<ColumnData<T>> columns) {
-        Objects.requireNonNull(border, "border cannot be null");
         Objects.requireNonNull(columns, "columns cannot be null");
-        final Column[] rawColumns = columns.toArray(new Column[0]);
-        final int cols = columns.size();
-
-        /**
-         * Accumulates mapped row data during collection (border-aware finisher).
-         *
-         * See the documentation in the other overload's RowAccumulator for threading and memory notes.
-         */
-        class RowAccumulator {
-            final List<String[]> rows = new ArrayList<>();
-
-            void add(T item) {
-                String[] row = new String[cols];
-                for (int i = 0; i < cols; i++) {
-                    row[i] = columns.get(i).getCellValue(item);
-                }
-                rows.add(row);
-            }
-
-            RowAccumulator combine(RowAccumulator other) {
-                rows.addAll(other.rows);
-                return this;
-            }
-
-            String finish() {
-                String[][] data = rows.toArray(new String[rows.size()][]);
-                return AsciiTable.getTable(border, rawColumns, data);
-            }
-        }
-
-        return Collector.of(
-                RowAccumulator::new,
-                RowAccumulator::add,
-                (a, b) -> a.combine(b),
-                RowAccumulator::finish
-        );
+        Objects.requireNonNull(border, "border cannot be null");
+        return createCollector(border, columns);
     }
 
     /**
