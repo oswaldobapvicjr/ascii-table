@@ -4,6 +4,7 @@ import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collector;
@@ -128,7 +129,7 @@ public final class AsciiTableCollector {
     @SafeVarargs
     public static <T extends @Nullable Object> Collector<T, ?, String> toAsciiTable(ColumnData<T>... columns) {
         Objects.requireNonNull(columns, "columns cannot be null");
-        return toAsciiTable(List.of(columns));
+        return toAsciiTable(Arrays.asList(columns));
     }
 
     /**
@@ -143,6 +144,6 @@ public final class AsciiTableCollector {
     public static <T extends @Nullable Object> Collector<T, ?, String> toAsciiTable(@Nullable Character[] border, ColumnData<T>... columns) {
         Objects.requireNonNull(border, "border cannot be null");
         Objects.requireNonNull(columns, "columns cannot be null");
-        return toAsciiTable(border, List.of(columns));
+        return toAsciiTable(border, Arrays.asList(columns));
     }
 }
