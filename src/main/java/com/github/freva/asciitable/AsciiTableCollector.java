@@ -28,24 +28,21 @@ public final class AsciiTableCollector {
      * <p>See the public API docs for threading / parallel-safety guidance.
      */
     private static final class RowAccumulator<T extends @Nullable Object> {
-        private final List<ColumnData<T>> columns;
-        private final Column[] rawColumns;
-        private final Character[] border;
-        private final ArrayList<String[]> rows;
+        private final ColumnData<T>[] rawColumns;
+        private final @Nullable Character @Nullable[] border;
+        private final ArrayList<@Nullable String[]> rows;
 
-        RowAccumulator(List<ColumnData<T>> columns, Column[] rawColumns, @Nullable Character[] border) {
-            this.columns = columns;
+        RowAccumulator(ColumnData<T>[] rawColumns, @Nullable Character @Nullable[] border) {
             this.rawColumns = rawColumns;
             this.border = border;
             this.rows = new ArrayList<>();
         }
 
         void add(T item) {
-            final int cols = columns.size();
-            String[] row = new String[cols];
+            final int cols = rawColumns.length;
+            @Nullable String[] row = new String[cols];
             for (int i = 0; i < cols; i++) {
-                // guard against null cell values; render as empty string
-                row[i] = Objects.toString(columns.get(i).getCellValue(item), "");
+                row[i] = rawColumns[i].getCellValue(item);
             }
             rows.add(row);
         }
@@ -61,7 +58,7 @@ public final class AsciiTableCollector {
         }
 
         String finish() {
-            String[][] data = rows.toArray(new String[rows.size()][]);
+            @Nullable String[][] data = rows.toArray(new String[rows.size()][]);
             return border == null ? AsciiTable.getTable(rawColumns, data) : AsciiTable.getTable(border, rawColumns, data);
         }
     }
@@ -69,11 +66,12 @@ public final class AsciiTableCollector {
     /**
      * Factory that creates the optimized collector for the given columns and optional border.
      */
-    private static <T extends @Nullable Object> Collector<T, ?, String> createCollector(@Nullable Character[] border, List<ColumnData<T>> columns) {
-        final Column[] rawColumns = columns.toArray(new Column[0]);
+    private static <T extends @Nullable Object> Collector<T, ?, String> createCollector(@Nullable Character @Nullable[] border, List<ColumnData<T>> columns) {
+        @SuppressWarnings("unchecked")
+        final ColumnData<T>[] rawColumns = columns.toArray(new ColumnData[0]);
 
         return Collector.of(
-                () -> new RowAccumulator<>(columns, rawColumns, border),
+                () -> new RowAccumulator<>(rawColumns, border),
                 RowAccumulator::add,
                 RowAccumulator::combine,
                 RowAccumulator::finish

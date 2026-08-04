@@ -45,19 +45,15 @@ public class AsciiTableCollectorTest {
         );
     }
 
-    private Collector<Person, ?, String> collector() {
-        return (Collector) AsciiTableCollector.toAsciiTable(columns());
+    @SuppressWarnings("unchecked")
+    private Collector<Person, Object, String> collector() {
+        return (Collector<Person, Object, String>) AsciiTableCollector.toAsciiTable(columns());
     }
 
     @Test
     public void collectsToTable_usingColumnDataList() {
         List<Person> people = samplePeople();
-
-        List<ColumnData<Person>> columns = Arrays.asList(
-                new Column().with(p -> Integer.toString(p.id)),
-                new Column().header("Name").with(p -> p.name),
-                new Column().header("Age").dataAlign(HorizontalAlign.RIGHT).with(p -> Integer.toString(p.age))
-        );
+        List<ColumnData<Person>> columns = columns();
 
         String expected = AsciiTable.getTable(people, columns);
         String actual = people.stream().collect(AsciiTableCollector.toAsciiTable(columns));
@@ -68,12 +64,7 @@ public class AsciiTableCollectorTest {
     @Test
     public void collectsToTable_usingBorderOverload() {
         List<Person> people = samplePeople();
-
-        List<ColumnData<Person>> columns = Arrays.asList(
-                new Column().with(p -> Integer.toString(p.id)),
-                new Column().header("Name").with(p -> p.name),
-                new Column().header("Age").dataAlign(HorizontalAlign.RIGHT).with(p -> Integer.toString(p.age))
-        );
+        List<ColumnData<Person>> columns = columns();
 
         Character[] border = AsciiTable.BASIC_ASCII;
         String expected = AsciiTable.getTable(border, people, columns);
@@ -85,13 +76,11 @@ public class AsciiTableCollectorTest {
     @Test
     public void collectsToTable_usingVarargsColumns() {
         List<Person> people = samplePeople();
+        List<ColumnData<Person>> columns = columns();
 
-        ColumnData<Person> c1 = new Column().with(p -> Integer.toString(p.id));
-        ColumnData<Person> c2 = new Column().header("Name").with(p -> p.name);
-        ColumnData<Person> c3 = new Column().header("Age").dataAlign(HorizontalAlign.RIGHT).with(p -> Integer.toString(p.age));
-
-        String expected = AsciiTable.getTable(people, Arrays.asList(c1, c2, c3));
-        String actual = people.stream().collect(AsciiTableCollector.toAsciiTable(c1, c2, c3));
+        String expected = AsciiTable.getTable(people, columns);
+        String actual = people.stream()
+                .collect(AsciiTableCollector.toAsciiTable(columns.get(0), columns.get(1), columns.get(2)));
 
         assertEquals(expected, actual);
     }
@@ -99,15 +88,13 @@ public class AsciiTableCollectorTest {
     @Test
     public void collectsToTable_usingBorderVarargs() {
         List<Person> people = samplePeople();
-
-        ColumnData<Person> c1 = new Column().with(p -> Integer.toString(p.id));
-        ColumnData<Person> c2 = new Column().header("Name").with(p -> p.name);
-        ColumnData<Person> c3 = new Column().header("Age").dataAlign(HorizontalAlign.RIGHT).with(p -> Integer.toString(p.age));
+        List<ColumnData<Person>> columns = columns();
 
         Character[] border = AsciiTable.BASIC_ASCII;
 
-        String expected = AsciiTable.getTable(border, people, Arrays.asList(c1, c2, c3));
-        String actual = people.stream().collect(AsciiTableCollector.toAsciiTable(border, c1, c2, c3));
+        String expected = AsciiTable.getTable(border, people, columns);
+        String actual = people.stream()
+                .collect(AsciiTableCollector.toAsciiTable(border, columns.get(0), columns.get(1), columns.get(2)));
 
         assertEquals(expected, actual);
     }
@@ -119,11 +106,7 @@ public class AsciiTableCollectorTest {
                 .mapToObj(i -> new Person(i, "Name" + i, 20 + (i % 50)))
                 .collect(Collectors.toList());
 
-        List<ColumnData<Person>> columns = List.of(
-                new Column().with(p -> Integer.toString(p.id)),
-                new Column().header("Name").with(p -> p.name),
-                new Column().header("Age").dataAlign(HorizontalAlign.RIGHT).with(p -> Integer.toString(p.age))
-        );
+        List<ColumnData<Person>> columns = columns();
 
         // expected using existing collection-based API (ordered)
         String expected = AsciiTable.getTable(people, columns);
@@ -141,11 +124,10 @@ public class AsciiTableCollectorTest {
     
     @Test
     public void combine_sameInstance_returnsSame() {
-        Collector<Person, ?, String> c = collector();
-
-        Supplier<Object> supplier = (Supplier) c.supplier();
-        BiConsumer<Object, Person> accumulator = (BiConsumer) c.accumulator();
-        BinaryOperator<Object> combiner = (BinaryOperator) c.combiner();
+        Collector<Person, Object, String> c = collector();
+        Supplier<Object> supplier = c.supplier();
+        BiConsumer<Object, Person> accumulator = c.accumulator();
+        BinaryOperator<Object> combiner = c.combiner();
 
         Object acc = supplier.get();
         // add one element to ensure rows is non-empty
@@ -158,11 +140,10 @@ public class AsciiTableCollectorTest {
 
     @Test
     public void combine_thisEmpty_returnsOther() {
-        Collector<Person, ?, String> c = collector();
-
-        Supplier<Object> supplier = (Supplier) c.supplier();
-        BiConsumer<Object, Person> accumulator = (BiConsumer) c.accumulator();
-        BinaryOperator<Object> combiner = (BinaryOperator) c.combiner();
+        Collector<Person, Object, String> c = collector();
+        Supplier<Object> supplier = c.supplier();
+        BiConsumer<Object, Person> accumulator = c.accumulator();
+        BinaryOperator<Object> combiner = c.combiner();
 
         Object emptyAcc = supplier.get();
         Object nonEmptyAcc = supplier.get();
@@ -174,11 +155,10 @@ public class AsciiTableCollectorTest {
 
     @Test
     public void combine_otherEmpty_returnsThis() {
-        Collector<Person, ?, String> c = collector();
-
-        Supplier<Object> supplier = (Supplier) c.supplier();
-        BiConsumer<Object, Person> accumulator = (BiConsumer) c.accumulator();
-        BinaryOperator<Object> combiner = (BinaryOperator) c.combiner();
+        Collector<Person, Object, String> c = collector();
+        Supplier<Object> supplier = c.supplier();
+        BiConsumer<Object, Person> accumulator = c.accumulator();
+        BinaryOperator<Object> combiner = c.combiner();
 
         Object nonEmptyAcc = supplier.get();
         Object emptyAcc = supplier.get();
@@ -190,12 +170,11 @@ public class AsciiTableCollectorTest {
 
     @Test
     public void combine_bothNonEmpty_mergesAndPreservesOrder() {
-        Collector<Person, ?, String> c = collector();
-
-        Supplier<Object> supplier = (Supplier) c.supplier();
-        BiConsumer<Object, Person> accumulator = (BiConsumer) c.accumulator();
-        BinaryOperator<Object> combiner = (BinaryOperator) c.combiner();
-        Function<Object, String> finisher = (Function) c.finisher();
+        Collector<Person, Object, String> c = collector();
+        Supplier<Object> supplier = c.supplier();
+        BiConsumer<Object, Person> accumulator = c.accumulator();
+        BinaryOperator<Object> combiner = c.combiner();
+        Function<Object, String> finisher = c.finisher();
 
         // build two partial accumulators that each receive some rows
         Object left = supplier.get();
