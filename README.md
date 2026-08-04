@@ -60,6 +60,29 @@ System.out.println(AsciiTable.getTable(planets, Arrays.asList(
 ```
 Prints the same table as above.
 
+## Table from Streams
+`AsciiTableCollector` provides a `Collector` for use with the Stream API. Each element is mapped to a row as it is
+encountered, so the stream never has to be materialized into an intermediate `List`:
+```java
+try (Stream<String> lines = Files.lines(Paths.get("planets.csv"))) {
+    String table = lines
+            .skip(1) // skip header
+            .map(line -> parsePlanet(line))
+            .collect(AsciiTableCollector.toAsciiTable(
+                    new Column().with(planet -> Integer.toString(planet.num)),
+                    new Column().header("Name").with(planet -> planet.name),
+                    new Column().header("Diameter").dataAlign(HorizontalAlign.RIGHT).with(planet -> String.format("%.03f", planet.diameter))));
+
+    System.out.println(table);
+}
+```
+The columns can also be passed as a `List<ColumnData<T>>`, and either form accepts a border style as the first
+argument:
+```java
+String table = planets.stream().collect(AsciiTableCollector.toAsciiTable(AsciiTable.FANCY_ASCII, columns));
+```
+Row order follows the stream's encounter order, so ordered parallel streams produce the same table as sequential ones.
+
 ## Column alignments
 Horizontally align header and data columns independently to left, right and center:
 ```java
